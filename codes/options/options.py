@@ -27,11 +27,6 @@ def Assign_GPU():
 def get_timestamp():
     return datetime.now().strftime('%y%m%d-%H%M%S')
 
-# def Return_Field(opts,field):
-#     if len(field)>1:
-#         opts = Return_Field(opts,field[:-1])
-#     return opts[field[-1]]
-
 def parse(opt_path, is_train=True,batch_size_multiplier=None,name=None):
     # remove comments starting with '//'
     json_str = ''
@@ -47,9 +42,6 @@ def parse(opt_path, is_train=True,batch_size_multiplier=None,name=None):
     dataset_root_path =  '/home/tiras/datasets' if 'tiras' in os.getcwd() else '/media/ybahat/data/Datasets' if running_on_Technion else '/home/ybahat/data/Databases'
     if 'root' not in opt['path']:
         opt['path']['root'] = '/media/ybahat/data/projects/SRGAN' if running_on_Technion else '/home/ybahat/PycharmProjects/SRGAN'
-    # if running_on_Technion:
-    #     opt['datasets']['train']['n_workers'] = 0
-    # datasets
     non_degraded_images_fieldname = 'dataroot_Uncomp' if name=='JPEG' else 'dataroot_HR'
     for phase, dataset in opt['datasets'].items():
         phase = phase.split('_')[0]
