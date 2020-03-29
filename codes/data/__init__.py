@@ -17,14 +17,8 @@ def create_dataloader(dataset, dataset_opt):
 
 def create_dataset(dataset_opt,**kwargs):
     mode = dataset_opt['mode']
-    if mode == 'LR':
-        from data.LR_dataset import LRDataset as D
-    elif mode == 'LRHR':
+    if mode == 'LRHR':
         from data.LRHR_dataset import LRHRDataset as D
-    elif mode == 'LRHRseg_bg':
-        from data.LRHR_seg_bg_dataset import LRHRSeg_BG_Dataset as D
-    elif mode == 'JPEG':
-        from data.JPEG_dataset import JpegDataset as D
     else:
         raise NotImplementedError('Dataset [{:s}] is not recognized.'.format(mode))
     dataset = D(dataset_opt,**kwargs)

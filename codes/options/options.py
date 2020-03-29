@@ -42,7 +42,7 @@ def parse(opt_path, is_train=True,batch_size_multiplier=None,name=None):
     dataset_root_path =  '/home/tiras/datasets' if 'tiras' in os.getcwd() else '/media/ybahat/data/Datasets' if running_on_Technion else '/home/ybahat/data/Databases'
     if 'root' not in opt['path']:
         opt['path']['root'] = '/media/ybahat/data/projects/SRGAN' if running_on_Technion else '/home/ybahat/PycharmProjects/SRGAN'
-    non_degraded_images_fieldname = 'dataroot_Uncomp' if name=='JPEG' else 'dataroot_HR'
+    non_degraded_images_fieldname = 'dataroot_HR'
     for phase, dataset in opt['datasets'].items():
         phase = phase.split('_')[0]
         dataset['phase'] = phase
@@ -70,9 +70,7 @@ def parse(opt_path, is_train=True,batch_size_multiplier=None,name=None):
             opt['path'][key] = os.path.expanduser(path)
     if 'tiras' in os.getcwd():
         opt['path']['root'] = opt['path']['root'].replace('/media/ybahat/data/projects/', '/home/tiras/ybahat/')
-    if name=='JPEG':
-        opt['name'] = os.path.join('JPEG', opt['name'])
-    elif name is not None:
+    if name is not None:
         opt['name'] = os.path.join(name)
     experiments_root = os.path.join(opt['path']['root'], 'experiments', opt['name'])
     opt['path']['experiments_root'] = experiments_root

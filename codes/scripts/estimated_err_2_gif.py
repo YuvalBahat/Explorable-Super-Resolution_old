@@ -7,7 +7,7 @@ import os
 import cv2
 import shutil
 root_folder = '/home/tiras/ybahat' if 'tiras' in os.getcwd() else '/media/ybahat/data/projects'
-model_dir = os.path.join(root_folder,'SRGAN/experiments/JPEG',MODEL_NAME)
+model_dir = os.path.join(root_folder,'SRGAN/experiments',MODEL_NAME)
 err_arr = np.load(os.path.join(model_dir,'avg_estimated_err.npz'))['avg_estimated_err']
 frame_nums = np.load(os.path.join(model_dir,'avg_estimated_err.npz'))['avg_estimated_err_step']
 frames_dir = os.path.join(model_dir,'temp_frames_dir')
