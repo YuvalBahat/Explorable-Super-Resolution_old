@@ -30,7 +30,7 @@ Official PyTorch implementation of the paper "Explorable Super Resolution" by Yu
 - Python packages: `pip install numpy opencv-python lmdb`
 
 # Codes
-We provide a detailed explaination of the **code framework** in [`./codes`](https://github.com/YuvalBahat/ExplorableSR/tree/master/codes).
+We provide a detailed explaination of the **code framework** in [`./codes`](https://github.com/YuvalBahat/Explorable-Super-Resolution/tree/master/codes).
 
 <!---
 # Usage

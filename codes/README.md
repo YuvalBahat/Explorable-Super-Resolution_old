@@ -3,7 +3,7 @@
 ## Consistency Enforcing Module (CEM)
 This module can wrap any existing (and even pre-trained) super resolution network, modifying its high-resolution outputs to be consistent with the low-resolution input. More details on the idea behind this module and its derivation can be found in the paper.
 
-####Initializing the module:
+#### Initializing the module:
 Start by creating a CEM configuration object, which can be initialized to default setting by passing only the super resolution scale factor ``sf``:
 
 ```
@@ -52,7 +52,7 @@ Calling ``wrapped_model.train(mode)`` invokes the respective command of the unde
 - Supports reading files from image folder or `lmdb` file. For faster IO during training, recommand to create `lmdb` dataset first. More details including lmdb format, creation and usage can be found in our [lmdb wiki](https://github.com/xinntao/BasicSR/wiki/Faster-IO-speed).
 - [`data/util.py`](https://github.com/xinntao/BasicSR/blob/master/codes/data/util.py) provides useful tools. For example, the `MATLAB bicubic` operation; rgbycbcr as MATLAB. We also provide [MATLAB bicubic imresize wiki](https://github.com/xinntao/BasicSR/wiki/MATLAB-bicubic-imresize) and [Color conversion in SR wiki](https://github.com/xinntao/BasicSR/wiki/Color-conversion-in-SR).
 - Now, we convert the images to format NCHW, [0,1], RGB, torch float tensor.
-<!--
+
 ## Model
 #### [`models/`](https://github.com/xinntao/BasicSR/tree/master/codes/models) Construct different models for training and testing.
 
