@@ -92,8 +92,6 @@ def parse(opt_path, is_train=True,batch_size_multiplier=None,name=None):
                 np.mod(opt['datasets']['train']['batch_size_4_grads_D'], opt['datasets']['train']['batch_size']) != 0:
             opt['datasets']['train']['batch_size'] -= 1
         assert opt['datasets']['train']['batch_size']>0,'Batch size must be greater than 0'
-        # assert opt['datasets']['train']['batch_size_4_grads_G']%opt['datasets']['train']['batch_size']==0,'Must have integer batches in a gradient step.'
-        # assert opt['datasets']['train']['batch_size_4_grads_D']%opt['datasets']['train']['batch_size']==0,'Must have integer batches in a gradient step.'
         assert opt['datasets']['train']['batch_size_4_grads_D']>=opt['datasets']['train']['batch_size_4_grads_G'],'Currently not supporting G_batch>D_batch'
         opt['train']['grad_accumulation_steps_G'] = opt['datasets']['train']['batch_size_4_grads_G']//opt['datasets']['train']['batch_size']
         opt['train']['grad_accumulation_steps_D'] = opt['datasets']['train']['batch_size_4_grads_D']//opt['datasets']['train']['batch_size']
@@ -106,7 +104,6 @@ def parse(opt_path, is_train=True,batch_size_multiplier=None,name=None):
     else:  # test
         results_root = os.path.join(opt['path']['root'], 'results', opt['name'])
         opt['path']['results_root'] = results_root
-        # opt['path']['log'] = results_root
 
     # network
     opt['network_G']['scale'] = scale

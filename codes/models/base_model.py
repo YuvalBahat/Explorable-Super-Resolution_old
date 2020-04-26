@@ -50,33 +50,12 @@ class BaseModel():
             network = network.module
         s = str(network)
         n = sum(map(lambda x: x.numel(), network.parameters()))
-        # receptive_field = self.numeric_effective_field(network)
-        # networks_device = next(network.parameters()).device
-        # receptive_field = compute_RF_numerical(network.cpu(),np.ones([1,3,256,256]))
-        # network.to(networks_device)
         if 'Discriminator' in str(network.__class__):
             kernel_size,strides = self.return_kernel_sizes_and_strides(network)
             receptive_field = self.calc_receptive_field(kernel_size,strides)
             return s,n,receptive_field
         else:
             return s, n
-    def numeric_effective_field(self,model):
-        INOUT_SIZE = 501
-        mid_index = INOUT_SIZE//2+1
-        zeros_input = torch.zeros(1,next(model.parameters()).shape[1],INOUT_SIZE,INOUT_SIZE).type(next(model.parameters()).dtype).to(next(model.parameters()).device)
-        delta_input = torch.zeros_like(zeros_input)
-        delta_input[0,:,mid_index,mid_index] = 1
-        model.eval()
-        diffs_image = (model(delta_input)-model(zeros_input)).abs().squeeze(0).data.cpu().numpy()
-        model.train()
-        for i_ind in [0,-1]:
-            for j_ind in [0,-1]:
-                if np.max(diffs_image[:,i_ind,j_ind])>0:
-                    return None
-        receptive_field = np.maximum(np.argwhere(np.sum(diffs_image,axis=(0,1)))[-1]-mid_index,mid_index-np.argwhere(np.sum(diffs_image,axis=(0,1)))[0])
-        receptive_field = 1+2*np.maximum(receptive_field,np.maximum(np.argwhere(np.sum(diffs_image,axis=(0,2)))[-1]-mid_index,mid_index-np.argwhere(np.sum(diffs_image,axis=(0,1)))[0]))
-        return receptive_field
-
 
     def return_kernel_sizes_and_strides(self,network):
         kernel_sizes,strides = [],[]
@@ -128,7 +107,6 @@ class BaseModel():
             loaded_state_dict = loaded_state_dict['model_state_dict']
         if self.opt['network_G']['CEM_arch']:
             loaded_state_dict = CEMnet.Adjust_State_Dict_Keys(loaded_state_dict,network.state_dict())
-        # network.load_state_dict(loaded_state_dict, strict=(strict and not self.opt['network_G']['CEM_arch']))
         loaded_state_dict = self.process_loaded_state_dict(loaded_state_dict=loaded_state_dict,current_state_dict=network.state_dict())
         network.load_state_dict(loaded_state_dict, strict=strict)
 
@@ -180,7 +158,6 @@ class BaseModel():
         return np.min(loss),np.max(loss)
 
     def display_log_figure(self):
-        # keys_2_display = ['l_g_pix', 'l_g_fea', 'l_g_range', 'l_g_gan', 'l_d_real', 'l_d_fake', 'D_real', 'D_fake','D_logits_diff','psnr_val']
         keys_2_display = ['l_g_gan','D_logits_diff', 'psnr_val','l_g_pix_log_rel','l_g_fea','l_g_range','l_d_real','D_loss_STD','l_g_latent','l_e',
                           'l_g_latent_0','l_g_latent_1','l_g_latent_2','l_g_optimalZ','l_g_pix','l_g_highpass','l_g_shift_invariant']
         PER_KEY_FIGURE = True

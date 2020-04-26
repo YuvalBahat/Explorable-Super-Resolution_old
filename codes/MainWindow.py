@@ -141,8 +141,8 @@ class Ui_MainWindow(object):
         self.Define_Button(button_name='scribble_reset',tooltip='Erase scribble in region',action_not_push=True)
         self.Define_Button(button_name='apply_scribble',tooltip='Perform a single scribble/imprinting application step',action_not_push=True,disabled=True)
         self.Define_Button(button_name='loop_apply_scribble',tooltip='Perform multiple scribble/imprinting application steps',action_not_push=True,disabled=True)
-        self.Define_Button(button_name='imprinting',tooltip='Set imprinting rectangle (Using transparent color)',action_not_push=False,checkable=True,disabled=True)
-        self.Define_Button(button_name='imprinting_auto_location',tooltip='Set boundaries for automatic imprinting location (Using transparent color)',action_not_push=False,checkable=True,disabled=True)
+        self.Define_Button(button_name='imprinting',tooltip='Set imprinting rectangle (Using transparent color)',action_not_push=False,checkable=False,disabled=True)
+        self.Define_Button(button_name='imprinting_auto_location',tooltip='Set boundaries for automatic imprinting location (Using transparent color)',action_not_push=False,checkable=False,disabled=True)
         self.Define_Button(button_name='open_image',tooltip='Load LR image',action_not_push=True)
         self.Define_Button(button_name='Z_load',tooltip='Load Z map',action_not_push=True)
         self.Define_Button('estimatedKenrel',tooltip='Use estimated SR kernel',action_not_push=False,checkable=True)
@@ -216,6 +216,8 @@ class Ui_MainWindow(object):
             self.DisplayedImageSelection_button.addItem('ESRGAN')
             self.DisplayedImageSelection_button.setEnabled(True)
             self.ESRGAN_index = self.DisplayedImageSelection_button.findText('ESRGAN')
+        else:
+            self.ESRGAN_index = None
         # I always add GT display, and only enable it for images with GT
         self.DisplayedImageSelection_button.addItem('GT')
         self.DisplayedImageSelection_button.setEnabled(True)
@@ -227,6 +229,8 @@ class Ui_MainWindow(object):
         self.random_display_indexes = [self.DisplayedImageSelection_button.findText(str(i+1)) for i in range(self.num_random_Zs)]
         self.DisplayedImageSelection_button.addItem('Scribble')
         self.canvas.scribble_display_index = self.DisplayedImageSelection_button.findText('Scribble')
+        self.DisplayedImageSelection_button.addItem('NN-interpolated')
+        self.input_display_index = self.DisplayedImageSelection_button.findText('NN-interpolated')
 
         ######## Defining user input boxes:
         # Weight limiting random Z generated images, if enabled:

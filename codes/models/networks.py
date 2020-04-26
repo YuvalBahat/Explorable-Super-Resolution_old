@@ -4,7 +4,6 @@ import torch.nn as nn
 from torch.nn import init
 
 import models.modules.architecture as arch
-import models.modules.sft_arch as sft_arch
 
 ####################
 # initialize
@@ -86,28 +85,11 @@ def define_G(opt,CEM=None,num_latent_channels=None):
     opt_net = opt['network_G']
     which_model = opt_net['which_model_G']
     opt_net['latent_input'] = opt_net['latent_input'] if opt_net['latent_input']!="None" else None
-    # if opt['network_G']['CEM_arch']:#Prevent a bug when using CEM, due to inv_hTh tensor residing on a different device (GPU) than the input tensor
-    #     import os
-    #     os.environ["CUDA_VISIBLE_DEVICES"] = "0"
-
-    if which_model == 'sr_resnet':  # SRResNet
-        netG = arch.SRResNet(in_nc=opt_net['in_nc'], out_nc=opt_net['out_nc'], nf=opt_net['nf'], \
-            nb=opt_net['nb'], upscale=opt_net['scale'], norm_type=opt_net['norm_type'], \
-            act_type='relu', mode=opt_net['mode'], upsample_mode='pixelshuffle')
-
-    elif which_model == 'sft_arch':  # SFT-GAN
-        netG = sft_arch.SFT_Net()
-
-    elif which_model == 'RRDB_net':  # RRDB
+    if which_model == 'RRDB_net':  # RRDB
         netG = arch.RRDBNet(in_nc=opt_net['in_nc'], out_nc=opt_net['out_nc'], nf=opt_net['nf'],
             nb=opt_net['nb'], gc=opt_net['gc'], upscale=opt_net['scale'], norm_type=opt_net['norm_type'],
             act_type='leakyrelu', mode=opt_net['mode'], upsample_mode='upconv',
             latent_input=(opt_net['latent_input']+'_'+opt_net['latent_input_domain']) if opt_net['latent_input'] is not None else None,num_latent_channels=num_latent_channels)
-    elif which_model == 'DnCNN':
-        netG = arch.DnCNN(n_channels=opt_net['nf'],depth=opt_net['nb'],in_nc=opt_net['in_nc'],out_nc=opt_net['out_nc'],norm_type=opt_net['norm_type'])
-    elif which_model == 'MSRResNet':  # SRResNet
-        netG = arch.MSRResNet(in_nc=opt_net['in_nc'], out_nc=opt_net['out_nc'], nf=opt_net['nf'], \
-                             nb=opt_net['nb'], upscale=opt_net['scale'])
     else:
         raise NotImplementedError('Generator model [{:s}] not recognized'.format(which_model))
     if opt_net['CEM_arch']:
@@ -136,21 +118,6 @@ def define_D(opt,CEM=None):
             kwargs['num_2_strides'] = opt_net['num_2_strides']
         netD = arch.Discriminator_VGG_128(in_nc=in_nc, base_nf=opt_net['nf'], nb=opt_net['n_layers'], \
             norm_type=opt_net['norm_type'], mode=opt_net['mode'], act_type=opt_net['act_type'],input_patch_size=input_patch_size,**kwargs)
-    if which_model == 'discriminator_vgg_128_nonModified':
-        netD = arch.Discriminator_VGG_128_nonModified(in_nc=in_nc, nf=opt_net['nf'])
-    elif which_model == 'dis_acd':  # sft-gan, Auxiliary Classifier Discriminator
-        netD = sft_arch.ACD_VGG_BN_96()
-    elif which_model=='PatchGAN':
-        norm_layer = functools.partial(nn.InstanceNorm2d, affine=False, track_running_stats=False)
-        netD = arch.PatchGAN_Discriminator(input_nc=in_nc, opt_net=opt_net,ndf=opt_net['nf'], n_layers=opt_net['n_layers'], norm_layer=norm_layer)
-    elif which_model == 'discriminator_vgg_96':
-        netD = arch.Discriminator_VGG_96(in_nc=in_nc, base_nf=opt_net['nf'], \
-            norm_type=opt_net['norm_type'], mode=opt_net['mode'], act_type=opt_net['act_type'])
-    elif which_model == 'discriminator_vgg_192':
-        netD = arch.Discriminator_VGG_192(in_nc=in_nc, base_nf=opt_net['nf'], \
-            norm_type=opt_net['norm_type'], mode=opt_net['mode'], act_type=opt_net['act_type'])
-    elif which_model == 'discriminator_vgg_128_SN':
-        netD = arch.Discriminator_VGG_128_SN()
     else:
         raise NotImplementedError('Discriminator model [{:s}] not recognized'.format(which_model))
 
@@ -179,28 +146,3 @@ def define_F(opt, use_bn=False,**kwargs):
     netF.eval()  # No need to train
     return netF
 
-def define_E(input_nc, output_nc, ndf, net_type,init_type='xavier', init_gain=0.02, gpu_ids=[], vaeLike=False):#,norm='batch', nl='lrelu'):
-    netE = None
-    norm_layer = functools.partial(nn.InstanceNorm2d, affine=False, track_running_stats=False)
-    nl = 'lrelu'  # use leaky relu for E
-    nl_layer = functools.partial(nn.LeakyReLU, negative_slope=0.2, inplace=True)
-    if net_type == 'resnet_128':
-        netE = arch.E_ResNet(input_nc, output_nc, ndf, n_blocks=4, norm_layer=norm_layer,
-                       nl_layer=nl_layer, vaeLike=vaeLike)
-    elif net_type == 'resnet_256':
-        netE = arch.E_ResNet(input_nc, output_nc, ndf, n_blocks=5, norm_layer=norm_layer,
-                       nl_layer=nl_layer, vaeLike=vaeLike)
-    elif net_type == 'conv_128':
-        netE = arch.E_NLayers(input_nc, output_nc, ndf, n_layers=4, norm_layer=norm_layer,
-                        nl_layer=nl_layer, vaeLike=vaeLike)
-    elif net_type == 'conv_256':
-        netE = arch.E_NLayers(input_nc, output_nc, ndf, n_layers=5, norm_layer=norm_layer,
-                        nl_layer=nl_layer, vaeLike=vaeLike)
-    else:
-        raise NotImplementedError('Encoder model name [%s] is not recognized' % net_type)
-    init_weights(netE, init_type='kaiming', scale=1)
-    if gpu_ids:
-        assert torch.cuda.is_available()
-        netE = nn.DataParallel(netE)
-    return netE
-    # return init_net(netE, init_type, init_gain, gpu_ids)
