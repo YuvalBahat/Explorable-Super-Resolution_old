@@ -7,6 +7,7 @@ This module can wrap any existing (and even pre-trained) super resolution networ
 Start by creating a CEM configuration object, which can be initialized to default setting by passing only the super resolution scale factor ``sf``:
 
 ```
+import CEM.CEMnet as CEMnet
 CEM_config = CEMnet.Get_CEM_Config(sf)
 ``` 
 
