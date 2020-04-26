@@ -41,7 +41,6 @@
   , "network_G": {
     "which_model_G": "RRDB_net" // RRDB_net | sr_resnet
     , "CEM_arch": 1
-    , "sigmoid_range_limit": 0
     , "latent_input": "all_layers" // "all_layers" //"all_layers","first_layer","None"
     , "latent_input_domain": "HR_downscaled" //"HR_downscaled","HR_rearranged","LR"
     , "latent_channels": "SVDinNormedOut_structure_tensor" //,"STD_1dir" //2,"STD_directional","structure_tensor","SVD_structure_tensor"

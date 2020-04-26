@@ -215,7 +215,7 @@ for test_loader in test_loaders:
                 if z_sample_num==0:
                     gt_img = util.tensor2img(visuals['HR'], out_type=np.float32)  # float32
                     if opt['network_G']['latent_channels']>0:
-                        img_projected_2_kernel_subspace = model.CEM_net.Project_2_ortho_2_NS(gt_img)
+                        img_projected_2_kernel_subspace = model.CEM_net.Project_2_kernel_subspace(gt_img)
                         gt_orthogonal_component = gt_img-img_projected_2_kernel_subspace #model.CEM_net.Return_Orthogonal_Component(gt_img)
                         HR_STD = 255*np.std(gt_orthogonal_component,axis=(0,1)).mean()
                     else:

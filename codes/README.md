@@ -1,21 +1,33 @@
 # Code Framework
-The overall code framework is shown in the following figure. It mainly consists of four parts - `Config`, `Data`, `Model` and `Network`.
 
-<p align="center">
-   <img src="https://github.com/xinntao/public_figures/blob/master/BasicSR/code_framework.png" height="450">
-</p>
+## Consistency Enforcing Module (CEM)
+This module can wrap any existing (and even pre-trained) super resolution network, modifying its high-resolution outputs to be consistent with the low-resolution input. More details on the idea behind this module and its derivation can be found in the paper.
 
-Let us take the train commad `python train.py -opt options/train/train_esrgan.json` for example. A sequence of actions will be done after this command. 
+####Initializing the module:
+Start by creating a CEM configuration object, which can be initialized to default setting by passing only the super resolution scale factor ``sf``:
 
-- [`train.py`](https://github.com/xinntao/BasicSR/blob/master/codes/train.py) is called. 
-- Reads the configuration (a json file) in [`options/train/train_esrgan.json`](https://github.com/xinntao/BasicSR/blob/master/codes/options/train/train_esrgan.json), including the configurations for data loader, network, loss, training strategies and etc. The json file is processed by [`options/options.py`](https://github.com/xinntao/BasicSR/blob/master/codes/options/options.py).
-- Creates the train and validation data loader. The data loader is constructed in [`data/__init__.py`](https://github.com/xinntao/BasicSR/blob/master/codes/data/__init__.py) according to different data modes.
-- Creates the model (is constructed in [`models/__init__.py`](https://github.com/xinntao/BasicSR/blob/master/codes/models/__init__.py) according to differnt model types). A model mainly consists of two parts - [network structure] and [model defination, e.g., loss definition, optimization and etc]. The network is constructed in [`models/network.py`](https://github.com/xinntao/BasicSR/blob/master/codes/models/networks.py) and the detailed structures are in [`models/modules`](https://github.com/xinntao/BasicSR/tree/master/codes/models/modules).
-- Start to train the model. Other actions like logging, saving intermediate models, validation, updating learning rate and etc are also done during the training.  
+```
+CEM_config = CEMnet.Get_CEM_Config(sf)
+``` 
 
-Moreover, there are utils and userful scripts. A detailed description is provided as follows.
+Then create the CEM object, by passing the assumed upsampling kernel ``upscale_kernel`` as an ND-array. For the default bicubic kernel, exclude this argument:
 
+```
+CEM = CEMnet.CEMnet(CEM_config,upscale_kernel=None)
+```
+#### Wrapping a super resolution model
+1. Wrap an existing (pre-trained or not) super-resolution ``SR_model`` with the CEM by typing:
 
+    ```wrapped_model = CEM.WrapArchitecture_PyTorch(SR_model,training_patch_size=None)```
+
+    Argument ``training_patch_size`` is used for creating a mask that discards image regions near the boundaries, that may be invalid due to convolution with the CEM filters. This is usefull when calculating some loss function of the output of the CEM. ``None`` may be passed otherwise.
+2. Now run the wrapped model on any low resolution image ``x``, by simply calling ``consistent_SR_im = wrapped_model(x)``. The CEM will run the underlying SR model and modify its output to be consistent with ``x``, given the assumed ``upscale_kernel``.
+
+**Note:**
+Calling ``wrapped_model.train(mode)`` invokes the respective command of the underlying ``SR_model``, but also determines whether input ``x`` would be pre-padded (when ``mode==False``) or not (for ``mode==True``), to reduce artifacts resulting from convolution with the CEM filters. Pre-padding and padding removal is done behind the scenes, and does requre any user action.
+
+ 
+<!--
 ## Table of Contents
 1. [Config](#config)
 1. [Data](#data)
@@ -38,9 +50,9 @@ Moreover, there are utils and userful scripts. A detailed description is provide
 - A separate data loader module. You can modify/create data loader to meet your own needs.
 - Uses `cv2` package to do image processing, which provides rich operations.
 - Supports reading files from image folder or `lmdb` file. For faster IO during training, recommand to create `lmdb` dataset first. More details including lmdb format, creation and usage can be found in our [lmdb wiki](https://github.com/xinntao/BasicSR/wiki/Faster-IO-speed).
-- [`data/util.py`](https://github.com/xinntao/BasicSR/blob/master/codes/data/util.py) provides useful tools. For example, the `MATLAB bicubic` operation; rgb<-->ycbcr as MATLAB. We also provide [MATLAB bicubic imresize wiki](https://github.com/xinntao/BasicSR/wiki/MATLAB-bicubic-imresize) and [Color conversion in SR wiki](https://github.com/xinntao/BasicSR/wiki/Color-conversion-in-SR).
+- [`data/util.py`](https://github.com/xinntao/BasicSR/blob/master/codes/data/util.py) provides useful tools. For example, the `MATLAB bicubic` operation; rgbycbcr as MATLAB. We also provide [MATLAB bicubic imresize wiki](https://github.com/xinntao/BasicSR/wiki/MATLAB-bicubic-imresize) and [Color conversion in SR wiki](https://github.com/xinntao/BasicSR/wiki/Color-conversion-in-SR).
 - Now, we convert the images to format NCHW, [0,1], RGB, torch float tensor.
-
+<!--
 ## Model
 #### [`models/`](https://github.com/xinntao/BasicSR/tree/master/codes/models) Construct different models for training and testing.
 
@@ -53,14 +65,15 @@ Moreover, there are utils and userful scripts. A detailed description is provide
 - The network is constructed in [`models/network.py`](https://github.com/xinntao/BasicSR/blob/master/codes/models/networks.py) and the detailed structures are in [`models/modules`](https://github.com/xinntao/BasicSR/tree/master/codes/models/modules).
 - We provide some useful blocks in [`block.py`](https://github.com/xinntao/BasicSR/blob/master/codes/models/modules/block.py) and it is flexible to construct your network structures with these pre-defined blocks.
 - You can also easily write your own network architecture in a seperate file like [`sft_arch.py`](https://github.com/xinntao/BasicSR/blob/master/codes/models/modules/sft_arch.py). 
-
+-->
 ## Utils
-#### [`utils/`](https://github.com/xinntao/BasicSR/tree/master/codes/utils) Provide useful utilities.
-
+[`utils/`](https://github.com/xinntao/BasicSR/tree/master/codes/utils) Provides useful utilities.
+<!--
 - [logger.py](https://github.com/xinntao/BasicSR/blob/master/codes/utils/logger.py) provides logging service during training and testing.
 - Support to use [tensorboard](https://www.tensorflow.org/programmers_guide/summaries_and_tensorboard) to visualize and compare training loss, validation PSNR and etc. Installationand usage can be found [here](https://github.com/xinntao/BasicSR/tree/master/codes/utils).
 - [progress_bar.py](https://github.com/xinntao/BasicSR/blob/master/codes/utils/progress_bar.py) provides a progress bar which can print the progress. 
-
+-->
 ## Scripts
-#### [`scripts/`](https://github.com/xinntao/BasicSR/tree/master/codes/scripts) Privide useful scripts.
+<!--#### [`scripts/`](https://github.com/xinntao/BasicSR/tree/master/codes/scripts) Privide useful scripts.
 Details can be found [here](https://github.com/xinntao/BasicSR/tree/master/codes/scripts).
+-->

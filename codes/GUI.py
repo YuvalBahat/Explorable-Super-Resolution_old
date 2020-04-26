@@ -1103,7 +1103,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self.canvas.Update_Image_Display = self.Update_Image_Display
         self.canvas.SelectImage2Display = self.SelectImage2Display
         self.canvas.Enforce_DT_on_Image_Pair = self.canvas.SR_model.CEM_net.Enforce_DT_on_Image_Pair
-        self.canvas.Project_2_Orthog_Nullspace = self.canvas.SR_model.CEM_net.Project_2_ortho_2_NS
+        self.canvas.Project_2_Orthog_Nullspace = self.canvas.SR_model.CEM_net.Project_2_kernel_subspace
         self.canvas.statusBar = self.statusBar
 
         #### Connecting buttons to functions:

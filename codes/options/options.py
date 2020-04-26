@@ -95,7 +95,6 @@ def parse(opt_path, is_train=True,batch_size_multiplier=None,name=None):
         assert opt['datasets']['train']['batch_size_4_grads_D']>=opt['datasets']['train']['batch_size_4_grads_G'],'Currently not supporting G_batch>D_batch'
         opt['train']['grad_accumulation_steps_G'] = opt['datasets']['train']['batch_size_4_grads_G']//opt['datasets']['train']['batch_size']
         opt['train']['grad_accumulation_steps_D'] = opt['datasets']['train']['batch_size_4_grads_D']//opt['datasets']['train']['batch_size']
-        # assert opt['network_G']['sigmoid_range_limit']==0 or opt['train']['range_weight'] ==0,'Reconsider using range penalty when using tanh range limiting of high frequencies'
         if 'network_D' in opt.keys():
             if opt['network_D']['which_model_D']=='PatchGAN':
                 assert opt['train']['gan_type'] in ['lsgan','wgan-gp']

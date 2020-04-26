@@ -54,9 +54,8 @@ class SRRaGANModel(BaseModel):
         self.CEM_net = None
         self.CEM_arch = opt['network_G']['CEM_arch']
         self.step = 0
-        if self.CEM_arch or (opt['is_train'] and train_opt['CEM_exp']) or self.latent_input is not None: #The last option is for testing ESRGAN with latent input, so that I can use CEM_net.Project_2_ortho_2_NS()
-            CEM_conf = CEMnet.Get_CEM_Conf(opt['scale'])
-            CEM_conf.sigmoid_range_limit = bool(opt['network_G']['sigmoid_range_limit'])
+        if self.CEM_arch or (opt['is_train'] and train_opt['CEM_exp']) or self.latent_input is not None: #The last option is for testing ESRGAN with latent input, so that I can use CEM_net.Project_2_kernel_subspace()
+            CEM_conf = CEMnet.Get_CEM_Config(opt['scale'])
             CEM_conf.input_range = np.array(opt['range'])
             if self.is_train:
                 assert train_opt['pixel_domain']=='HR' or not self.CEM_arch,'Why should I use CEM_arch AND penalize MSE in the LR domain?'

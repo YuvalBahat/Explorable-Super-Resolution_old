@@ -1,11 +1,6 @@
 from scipy.signal import convolve2d as conv2
 import numpy as np
-tf_loaded,pytorch_loaded = False,False
-# try:
-#     import tensorflow as tf
-#     tf_loaded = True
-# except:
-#     pass
+pytorch_loaded = False
 try:
     import torch
     import torch.nn as nn
@@ -19,15 +14,13 @@ import collections
 class CEMnet:
     NFFT_add = 36
 
-    def __init__(self,conf,upscale_kernel=None):
-        self.conf = conf
-        self.ds_factor = np.array(conf.scale_factor,dtype=np.int32)
+    def __init__(self,config,upscale_kernel=None):
+        self.config = config
+        self.ds_factor = np.array(config.scale_factor,dtype=np.int32)
         assert np.round(self.ds_factor)==self.ds_factor,'Currently only supporting integer scale factors'
-        assert upscale_kernel is None or isinstance(upscale_kernel,str) or isinstance(upscale_kernel,np.ndarray),'To support given kernels, change the Return_Invalid_Margin_Size_in_LR function and make sure everything else works'
-        # if isinstance(upscale_kernel, torch.Tensor):
-        #     upscale_kernel = np.squeeze(upscale_kernel.data.cpu().numpy())
+        assert upscale_kernel is None or isinstance(upscale_kernel,str) or isinstance(upscale_kernel,np.ndarray),'Kernels should be given as ND-arrays, except for some specific possible strings'
         self.ds_kernel = Return_kernel(self.ds_factor,upscale_kernel=upscale_kernel)
-        self.ds_kernel_invalidity_half_size_LR = self.Return_Invalid_Margin_Size_in_LR('ds_kernel',self.conf.filter_pertubation_limit)
+        self.ds_kernel_invalidity_half_size_LR = self.Return_Invalid_Margin_Size_in_LR('ds_kernel',self.config.filter_pertubation_limit)
         self.compute_inv_hTh()
         self.invalidity_margins_LR = 2* self.ds_kernel_invalidity_half_size_LR + self.inv_hTh_invalidity_half_size
         self.invalidity_margins_HR = self.ds_factor * self.invalidity_margins_LR
@@ -83,158 +76,57 @@ class CEMnet:
             return
         else:
             returnable =  CEM_PyTorch(self,generated_image)
+            # A list of the CEM filters. To be used externally to avoid changing or learning the weights of these pre-fixed filters:
             self.OP_names = [m[0] for m in returnable.named_modules() if 'Filter_OP' in m[0]]
             return returnable
 
     def Mask_Invalid_Regions_PyTorch(self,im1,im2):
+        # Masking a couple of images before penalizing for the difference between them. Masking areas close to boundaries, that are invalid due to convolutions with CEM filters.
         assert self.loss_mask is not None,'Mask not defined, probably didn''t pass patch size'
         return self.loss_mask*im1,self.loss_mask*im2
 
-    def WrapArchitecture(self,model,unpadded_input_t,generated_image_t=None):
-        assert tf_loaded,'Failed to load TensorFlow - Necessary for this function of CEM'
-        assert not self.conf.sigmoid_range_limit,'Unsupported yet'
-        PAD_GENRATED_TOO = True
-        self.model = model
-        with model.as_default():
-            self.compute_conv_with_inv_hTh_OP()
-            self.create_scaling_OPs()
-            # Padding image for inference time or leaving as-is for training (taking x2 the calculated margins for extra-safety):
-            LR_padding_size = 2*self.invalidity_margins_LR
-            HR_padding_size = 2*self.invalidity_margins_HR
-            self.pre_pad_input = tf.placeholder(dtype=tf.bool,name='pre_pad_input')
-            LR_padding_OP = Create_Tensor_Pad_OP(LR_padding_size)
-            HR_padding_OP = Create_Tensor_Pad_OP(HR_padding_size)
-            def Return_Padded_Input():
-                return LR_padding_OP(unpadded_input_t)
-            def Return_Unpadded_Input():
-                return unpadded_input_t
-            self.LR_input_t = tf.cond(self.pre_pad_input,true_fn=Return_Padded_Input,false_fn=Return_Unpadded_Input)
-
-            self.ortho_2_NS_HR_component = self.Upscale_OP(self.Conv_LR_with_Inv_hTh_OP((self.LR_input_t)))
-            if generated_image_t is None:
-                print('Creating an HR image generator network...')
-                self.create_im_generator()
-            else:
-                print('Using the given generated image as HR image...')
-                self.generated_im = generated_image_t
-            if PAD_GENRATED_TOO:
-                def Return_Padded_Generated_Im():
-                    return HR_padding_OP(self.generated_im)
-                def Return_Unpadded_Generated_Im():
-                    return self.generated_im
-                self.generated_im = tf.cond(self.pre_pad_input,true_fn=Return_Padded_Generated_Im,false_fn=Return_Unpadded_Generated_Im)
-
-            self.ortho_2_NS_generated_component = self.Upscale_OP(self.Conv_LR_with_Inv_hTh_OP(self.DownscaleOP(self.generated_im)))
-            self.NS_HR_component = self.generated_im-self.ortho_2_NS_generated_component
-            if PAD_GENRATED_TOO:
-                output = tf.add(self.ortho_2_NS_HR_component,self.NS_HR_component,name='CEM_add_subspaces')
-            else:
-                output = self.ortho_2_NS_HR_component
-            # Remove image padding for inference time or leaving as-is for training:
-            def Return_Output():
-                return output
-            def Return_Cropped_Output():
-                margins_2_crop = tf.cast((tf.shape(output)-self.ds_factor*tf.shape(unpadded_input_t))/2,dtype=tf.int32)
-                return tf.slice(output,begin=tf.stack([0,margins_2_crop[1],margins_2_crop[2],0]),
-                                size=tf.stack([-1,self.ds_factor*tf.shape(unpadded_input_t)[1],self.ds_factor*tf.shape(unpadded_input_t)[2],-1]))
-            self.output_t = tf.cond(self.pre_pad_input,true_fn=Return_Cropped_Output,false_fn=Return_Output)
-            if PAD_GENRATED_TOO:
-                return self.output_t
-            else:
-                return tf.add(self.output_t,self.NS_HR_component,name='CEM_add_subspaces')
-
     def Enforce_DT_on_Image_Pair(self,LR_source,HR_input):
+        # Given a Low Resolution (LR) image and a High Resolution (HR) image, returning the image closest to the HR input that is consistent with the LR input.
+        # The LR input can either be in its original size or already interpolated to the HR size.
         same_scale_dimensions = [LR_source.shape[i]==HR_input.shape[i] for i in range(LR_source.ndim)]
         LR_scale_dimensions = [self.ds_factor*LR_source.shape[i]==HR_input.shape[i] for i in range(LR_source.ndim)]
         assert np.all(np.logical_or(same_scale_dimensions,LR_scale_dimensions))
-        LR_source = self.DT_Satisfying_Upscale(LR_source) if np.any(LR_scale_dimensions) else self.Project_2_ortho_2_NS(LR_source)
-        HR_projected_2_h_subspace = self.Project_2_ortho_2_NS(HR_input)
+        LR_source = self.DT_Satisfying_Upscale(LR_source) if np.any(LR_scale_dimensions) else self.Project_2_kernel_subspace(LR_source)
+        HR_projected_2_h_subspace = self.Project_2_kernel_subspace(HR_input)
         return  HR_input-HR_projected_2_h_subspace+LR_source
 
-    def Project_2_ortho_2_NS(self,HR_input):
+    def Project_2_kernel_subspace(self,HR_input):
+        # Return the projection of the given High Resolution image onto the affine subspace defined by the downsampling kernel, by downsampling and then upsampling it back.
         return self.DT_Satisfying_Upscale(imresize(HR_input,scale_factor=[1/self.ds_factor]))
 
     def Supplement_Pseudo_CEM(self,input_t):
         return self.Learnable_Upscale_OP(self.Conv_LR_with_Learnable_OP(self.Learnable_DownscaleOP(input_t)))
 
-    def create_im_generator(self):
-        with self.model.as_default():
-            with tf.variable_scope('CEM_generator'):
-                upscaling_filter_shape = self.conf.filter_shape[0][:-2]+[3,self.ds_factor**2]
-                self.conf.filter_shape[1] = copy.deepcopy(self.conf.filter_shape[1])
-                self.conf.filter_shape[1][2] = 3
-                self.upscaling_filter = tf.get_variable(shape=upscaling_filter_shape,name='upscaling_filter',
-                    initializer=tf.random_normal_initializer(stddev=np.sqrt(self.conf.init_variance / np.prod(upscaling_filter_shape[0:3]))))
-                self.G_filters_t = [tf.get_variable(shape=self.conf.filter_shape[ind+1], name='filter_%d' % ind,
-                    initializer=tf.random_normal_initializer(stddev=np.sqrt(self.conf.init_variance / np.prod(self.conf.filter_shape[ind+1][0:3]))))
-                                  for ind in range(self.conf.depth-1)]
-            input_shape = tf.shape(self.LR_input_t)
-            self.G_layers_t = [tf.reshape(tf.transpose(tf.reshape(tf.nn.depthwise_conv2d(self.LR_input_t,self.upscaling_filter,[1,1,1,1],padding='SAME'),
-                shape=tf.stack([input_shape[0],input_shape[1],input_shape[2],input_shape[3],self.ds_factor,self.ds_factor])),perm=[0,1,4,2,5,3]),
-                shape=tf.stack([input_shape[0],self.ds_factor*input_shape[1],self.ds_factor*input_shape[2],input_shape[3]]))]
-            self.G_layers_t = [tf.nn.leaky_relu(self.G_layers_t[0],name='layer_0')] + [None] * (self.conf.depth-1)
-            for l in range(self.conf.depth - 2):
-                self.G_layers_t[l + 1] = tf.nn.leaky_relu(tf.nn.conv2d(self.G_layers_t[l], self.G_filters_t[l],[1, 1, 1, 1], "SAME", name='layer_%d' % (l + 1)))
-            self.G_layers_t[l+2] = tf.nn.conv2d(self.G_layers_t[l+1], self.G_filters_t[l+1],[1, 1, 1, 1], "SAME", name='layer_%d' % (l + 2))
-            self.generated_im = self.G_layers_t[-1]
-
     def compute_inv_hTh(self):
+        # Compute the CEM filter K, that is the inverse of the filter computed by convolving h with its reflected version.
         hTh = conv2(self.ds_kernel,np.rot90(self.ds_kernel,2))*self.ds_factor**2
         hTh = Aliased_Down_Sampling(hTh,self.ds_factor)
         pad_pre = pad_post = np.array(self.NFFT_add/2,dtype=np.int32)
         hTh_fft = np.fft.fft2(np.pad(hTh,((pad_pre,pad_post),(pad_pre,pad_post)),mode='constant',constant_values=0))
         # When ds_kernel is wide, some frequencies get completely wiped out, which causes instability when hTh is inverted. I therfore bound this filter's magnitude from below in the Fourier domain:
-        magnitude_increasing_map = np.maximum(1,self.conf.lower_magnitude_bound/np.abs(hTh_fft))
+        magnitude_increasing_map = np.maximum(1,self.config.lower_magnitude_bound/np.abs(hTh_fft))
         hTh_fft = hTh_fft*magnitude_increasing_map
         # Now inverting the filter:
         self.inv_hTh = np.real(np.fft.ifft2(1/hTh_fft))
-        # Making sure the filter's maximal value sits in its middle:
+        # Making sure the filter's maximal value sits in its middle, to prevent it from inducing image shifts:
         max_row = np.argmax(self.inv_hTh)//self.inv_hTh.shape[0]
         max_col = np.mod(np.argmax(self.inv_hTh),self.inv_hTh.shape[0])
         if not np.all(np.equal(np.ceil(np.array(self.inv_hTh.shape)/2),np.array([max_row,max_col])-1)):
             half_filter_size = np.min([self.inv_hTh.shape[0]-max_row-1,self.inv_hTh.shape[0]-max_col-1,max_row,max_col])
             self.inv_hTh = self.inv_hTh[max_row-half_filter_size:max_row+half_filter_size+1,max_col-half_filter_size:max_col+half_filter_size+1]
 
-        self.inv_hTh_invalidity_half_size = self.Return_Invalid_Margin_Size_in_LR('inv_hTh',self.conf.filter_pertubation_limit)
-        margins_2_drop = self.inv_hTh.shape[0]//2-self.Return_Invalid_Margin_Size_in_LR('inv_hTh',self.conf.desired_inv_hTh_energy_portion)
+        self.inv_hTh_invalidity_half_size = self.Return_Invalid_Margin_Size_in_LR('inv_hTh',self.config.filter_pertubation_limit)
+        margins_2_drop = self.inv_hTh.shape[0]//2-self.Return_Invalid_Margin_Size_in_LR('inv_hTh',self.config.desired_inv_hTh_energy_portion)
         if margins_2_drop>0:
             self.inv_hTh = self.inv_hTh[margins_2_drop:-margins_2_drop,margins_2_drop:-margins_2_drop]
 
-    def compute_conv_with_inv_hTh_OP(self):
-        self.inv_hTh_t = tf.constant(np.tile(np.expand_dims(np.expand_dims(self.inv_hTh,axis=2),axis=3),reps=[1,1,3,1]))
-        self.Conv_LR_with_Inv_hTh_OP = lambda x:tf.nn.depthwise_conv2d(input=x,filter=self.inv_hTh_t,strides=[1,1,1,1],padding='SAME')
-        if self.conf.pseudo_CEM_supplement:
-            with self.model.as_default():
-                with tf.variable_scope('Generator'):
-                    self.Conv_LR_with_Learnable_OP = lambda x: tf.nn.depthwise_conv2d(input=x,
-                        filter=tf.get_variable(shape=self.inv_hTh_t.get_shape(),name='pseudo_inv_hTh_filter',
-                        initializer=tf.random_normal_initializer(stddev=np.sqrt(self.conf.init_variance / np.prod(self.inv_hTh_t.get_shape().as_list()[0:3])))),
-                        strides=[1, 1, 1, 1],padding='SAME')
 
-    def create_scaling_OPs(self):
-        downscale_antialiasing = tf.constant(np.tile(np.expand_dims(np.expand_dims(np.rot90(self.ds_kernel,2),axis=2),axis=3),reps=[1,1,3,1]))
-        upscale_antialiasing = tf.constant(np.tile(np.expand_dims(np.expand_dims(self.ds_kernel*self.ds_factor**2,axis=2),axis=3),reps=[1,1,3,1]))
-        pre_stride, post_stride = calc_strides(None, self.ds_factor)
-        self.Aliased_Upscale_OP = lambda x:tf.reshape(tf.pad(tf.expand_dims(tf.expand_dims(x,axis=3),axis=2),
-            paddings=tf.constant([[0,0],[0,0],[pre_stride[0],post_stride[0]],[0,0],[pre_stride[1],post_stride[1]],[0,0]])),
-            shape=tf.stack([tf.shape(x)[0],self.ds_factor*tf.shape(x)[1],self.ds_factor*tf.shape(x)[2],tf.shape(x)[3]]))
-        self.Upscale_OP = lambda x:tf.nn.depthwise_conv2d(input=self.Aliased_Upscale_OP(x),filter=upscale_antialiasing,strides=[1,1,1,1],padding='SAME')
-        Cropped_2_Integer_Factors = lambda x:tf.slice(x,begin=[0,0,0,0],
-            size=tf.stack([-1,tf.cast(tf.floor(tf.shape(x)[1]/self.ds_factor)*self.ds_factor,dtype=tf.int32),tf.cast(tf.floor(tf.shape(x)[2]/self.ds_factor)*self.ds_factor,dtype=tf.int32),-1]))
-        Reshaped_input = lambda x:tf.reshape(Cropped_2_Integer_Factors(x),
-            shape=tf.stack([tf.shape(x)[0],tf.cast(tf.shape(x)[1]/self.ds_factor,dtype=tf.int32),self.ds_factor,tf.cast(tf.shape(x)[2]/self.ds_factor,dtype=tf.int32),self.ds_factor,tf.shape(x)[3]]))
-        self.Aliased_Downscale_OP = lambda x:tf.squeeze(tf.slice(Reshaped_input(x),begin=[0,0,pre_stride[0],0,pre_stride[1],0],size=[-1,-1,1,-1,1,-1]),axis=[2,4])
-        self.DownscaleOP = lambda x:self.Aliased_Downscale_OP(tf.nn.depthwise_conv2d(input=x,filter=downscale_antialiasing,strides=[1,1,1,1],padding='SAME'))
-        if self.conf.pseudo_CEM_supplement:
-            with self.model.as_default():
-                with tf.variable_scope('Generator'):
-                    self.Learnable_Upscale_OP = lambda x:tf.nn.depthwise_conv2d(input=self.Aliased_Upscale_OP(x),
-                        filter=tf.get_variable(shape=upscale_antialiasing.get_shape(),name='pseudo_upscale_filter',
-                        initializer=tf.random_normal_initializer(stddev=np.sqrt(self.conf.init_variance / np.prod(upscale_antialiasing.get_shape().as_list()[0:3])))),strides=[1,1,1,1],padding='SAME')
-                    self.Learnable_DownscaleOP = lambda x:self.Aliased_Downscale_OP(tf.nn.depthwise_conv2d(input=x,
-                        filter=tf.get_variable(shape=downscale_antialiasing.get_shape(),name='pseudo_downscale_filter',
-                        initializer=tf.random_normal_initializer(stddev=np.sqrt(self.conf.init_variance / np.prod(downscale_antialiasing.get_shape().as_list()[0:3])))),strides=[1,1,1,1],padding='SAME'))
-
+# CEM filters:
 class Filter_Layer(nn.Module):
     def __init__(self,filter,pre_filter_func,post_filter_func=None):
         super(Filter_Layer, self).__init__()
@@ -243,14 +135,16 @@ class Filter_Layer(nn.Module):
         self.Filter_OP.filter_layer = True
         self.pre_filter_func = pre_filter_func
         self.post_filter_func = (lambda x:x) if post_filter_func is None else post_filter_func
+
     def forward(self, x):
         return self.post_filter_func(self.Filter_OP(self.pre_filter_func(x)))
 
 class CEM_PyTorch(nn.Module):
     def __init__(self, CEMnet, generated_image):
+        # Wrapping a given Super-Resolution network generated_image with the CEM
         super(CEM_PyTorch, self).__init__()
         self.ds_factor = CEMnet.ds_factor
-        self.conf = CEMnet.conf
+        self.config = CEMnet.config
         self.generated_image_model = generated_image
         inv_hTh_padding = np.floor(np.array(CEMnet.inv_hTh.shape)/2).astype(np.int32)
         Replication_Padder = nn.ReplicationPad2d((inv_hTh_padding[1],inv_hTh_padding[1],inv_hTh_padding[0],inv_hTh_padding[0]))
@@ -271,13 +165,13 @@ class CEM_PyTorch(nn.Module):
         self.HR_unpadder = CEMnet.HR_unpadder
         self.LR_unpadder = CEMnet.LR_unpadder#Debugging tool
         self.pre_pad = False #Using a variable as flag because I couldn't pass it as argument to forward function when using the DataParallel module with more than 1 GPU
-        self.return_2_components = 'decomposed_output' in self.conf.__dict__ and self.conf.decomposed_output
 
     def forward(self, x):
-        return_2_components = self.return_2_components and not self.pre_pad
-        if self.pre_pad:
-            LR_Z = x.size(1) - 3 == self.generated_image_model.num_latent_channels
+        if self.pre_pad: #Pre-padding the image to reduce image boundary effects due to convolution with CEM filters:
+            LR_Z = x.size(1) - 3 == self.generated_image_model.num_latent_channels #Determining weather Z has the dimensions of the HR or LR image
             if x.size(1)!=3 and not LR_Z:
+                # Z has the dimensions of the HR image. This means spatial dimensions of Z are reduced back to LR size by converting data into more channels, to allow concatenation to the input LR image.
+                # In order to add padding, we need to first extract Z into its HR spatial dimensions, then pad, then reshape back before concatenating with the image:
                 latent_input_HR,x = torch.split(x,split_size_or_sections=[x.size(1)-3,3],dim=1)
                 latent_input_HR = latent_input_HR.view([latent_input_HR.size(0)]+[-1]+[self.generated_image_model.upscale*val for val in list(latent_input_HR.size()[2:])])
                 x = self.LR_padder(x)
@@ -285,31 +179,22 @@ class CEM_PyTorch(nn.Module):
                 x = torch.cat([latent_input_HR,x],1)
             else:
                 x = self.LR_padder(x)
+        # Run the SR network:
         generated_image = self.generated_image_model(x)
-        x = x[:,-3:,:,:]# Handling the case of adding noise channel(s) - Using only last 3 image channels
+        x = x[:,-3:,:,:]# The image itself resides in the last 3 channels. Other channels hold the latent control input.
         assert np.all(np.mod(generated_image.size()[2:],self.ds_factor)==0)
-        ortho_2_NS_HR_component = self.Upscale_OP(self.Conv_LR_with_Inv_hTh_OP(x))
-        ortho_2_NS_generated = self.Upscale_OP(self.Conv_LR_with_Inv_hTh_OP(self.DownscaleOP(generated_image)))
-        NS_HR_component = generated_image - ortho_2_NS_generated
-        if self.conf.sigmoid_range_limit:
-            NS_HR_component = torch.tanh(NS_HR_component)*(self.conf.input_range[1]-self.conf.input_range[0])
-        output = [ortho_2_NS_HR_component,NS_HR_component] if return_2_components else ortho_2_NS_HR_component+NS_HR_component
+        kernel_subspace_comp_from_LR = self.Upscale_OP(self.Conv_LR_with_Inv_hTh_OP(x))
+        kernel_subspace_comp_from_generated = self.Upscale_OP(self.Conv_LR_with_Inv_hTh_OP(self.DownscaleOP(generated_image)))
+        kernel_nullspace_comp_from_generated = generated_image - kernel_subspace_comp_from_generated
+        output = kernel_subspace_comp_from_LR+kernel_nullspace_comp_from_generated
         return self.HR_unpadder(output) if self.pre_pad else output
 
     def train(self,mode=True):
         super(CEM_PyTorch,self).train(mode=mode)
-        self.pre_pad = not mode
-
-    def Image_2_Sigmoid_Range_Converter(self,images,opposite_direction=False):
-        if opposite_direction:
-            return images*(self.conf.input_range[1]-self.conf.input_range[0])+self.conf.input_range[0]
-        else:
-            images = torch.clamp(images,min=self.conf.input_range[0],max=self.conf.input_range[1])
-            return (images-self.conf.input_range[0])/(self.conf.input_range[1] - self.conf.input_range[0])
-    def Inverse_Sigmoid(self,images):
-        return torch.log(self.Image_2_Sigmoid_Range_Converter(images)/(1.-self.Image_2_Sigmoid_Range_Converter(images)))
+        self.pre_pad = not mode #Padding the image only in test mode. Masking invalid regions before computing loss during training, so no need for padding.
 
 def Aliased_Down_Sampling(array,factor):
+    # Performing only the actual downsampling, without anti-aliasing pre-filtering:
     pre_stride,post_stride = calc_strides(array,1/factor,align_center=True)
     if array.ndim>2:
         array = array[pre_stride[0]::factor,pre_stride[1]::factor,:]
@@ -317,25 +202,8 @@ def Aliased_Down_Sampling(array,factor):
         array = array[pre_stride[0]::factor, pre_stride[1]::factor]
     return array
 
-def Return_Downscale_OP(ds_factor,ds_kernel=None):
-    if ds_kernel is None:
-        ds_kernel = Return_kernel(ds_factor)
-    downscale_antialiasing = tf.constant(np.tile(np.expand_dims(np.expand_dims(np.rot90(ds_kernel, 2), axis=2), axis=3), reps=[1, 1, 3, 1]))
-    pre_stride, post_stride = calc_strides(None, ds_factor)
-    ds_factor_float_t = tf.constant(ds_factor,dtype=tf.float32)
-    input_shape_assertion = lambda x: tf.Assert(condition=tf.logical_and(tf.equal(tf.round(tf.cast(tf.shape(x)[1],tf.float32) / ds_factor_float_t),tf.cast(tf.shape(x)[1],tf.float32) / ds_factor_float_t),
-        tf.equal(tf.round(tf.cast(tf.shape(x)[2],tf.float32) / ds_factor_float_t),tf.cast(tf.shape(x)[2],tf.float32) / ds_factor_float_t)),data=[tf.shape(x)])
-    ds_factor_int_t = tf.constant(int(ds_factor),dtype=tf.int32)
-    Reshaped_input = lambda x: tf.reshape(x,shape=tf.stack(
-        [tf.shape(x)[0], tf.cast(tf.shape(x)[1] / ds_factor_int_t, dtype=tf.int32),ds_factor_int_t, tf.cast(tf.shape(x)[2] / ds_factor_int_t, dtype=tf.int32),ds_factor_int_t, tf.shape(x)[3]]))
-    Aliased_Downscale_OP = lambda x: tf.squeeze(tf.slice(Reshaped_input(x), begin=[0, 0, pre_stride[0], 0, pre_stride[1], 0], size=[-1, -1, 1, -1, 1, -1]),axis=[2, 4])
-    def Downscale_OP(input):
-        shape_assertion = input_shape_assertion(input)
-        with tf.control_dependencies([shape_assertion]):
-            return Aliased_Downscale_OP(tf.nn.depthwise_conv2d(input=input, filter=downscale_antialiasing, strides=[1, 1, 1, 1], padding='SAME'))
-    return Downscale_OP
-
 def Aliased_Down_Up_Sampling(array,factor):
+    # Performing only the actual downsampling followed by upsampling, without anti-aliasing pre and post-filtering:
     half_stride_size = np.floor(factor/2).astype(np.int32)
     input_shape = list(array.shape)
     if array.ndim>2:
@@ -351,37 +219,21 @@ def Return_kernel(ds_factor,upscale_kernel=None):
     return np.rot90(imresize(None, [ds_factor, ds_factor], return_upscale_kernel=True,kernel=upscale_kernel), 2).astype(np.float32) / (ds_factor ** 2)
 
 def Pad_Image(image,margin_size):
-    try:
-        return np.pad(image,pad_width=((margin_size,margin_size),(margin_size,margin_size),(0,0)),mode='edge')
-    except:
-        print('Reproduced the BUG I''m looking for')
+    return np.pad(image,pad_width=((margin_size,margin_size),(margin_size,margin_size),(0,0)),mode='edge')
 
 def Unpad_Image(image,margin_size):
     return image[margin_size:-margin_size,margin_size:-margin_size,:]
 
-def Create_Tensor_Pad_OP(padding_size):
-    pad_size_list = [1]
-    while sum(pad_size_list)<padding_size:
-        pad_size_list.append(np.minimum(1+sum(pad_size_list),padding_size-sum(pad_size_list)))
-    def TF_Pad_OP(x):
-        for cur_pad_size in pad_size_list:
-            x = tf.pad(x, paddings=tf.constant([[0, 0], [cur_pad_size, cur_pad_size], [cur_pad_size, cur_pad_size], [0, 0]]),mode='SYMMETRIC')
-        return x
-    return TF_Pad_OP
-
-def Get_CEM_Conf(sf):
-    class conf:
+def Get_CEM_Config(sf):
+    class config:
         scale_factor = sf
-        avoid_skip_connections = False
-        generate_HR_image = False
-        pseudo_CEM_supplement = False
         desired_inv_hTh_energy_portion = 1 - 1e-6#1-1e-10
         filter_pertubation_limit = 0.999
-        sigmoid_range_limit = False
         lower_magnitude_bound = 0.01 # Lower bound on hTh filter magnitude in Fourier domain
-    return conf
+    return config
 
 def Adjust_State_Dict_Keys(loaded_state_dict,current_state_dict):
+    # When loading a network pre-trained without CEM and using it with CEM, some parameter names should be modified:
     if all([('generated_image_model' in key or 'Filter' in key) for key in current_state_dict.keys()]) and not any(['generated_image_model' in key for key in loaded_state_dict.keys()]):  # Using CEM_arch
         modified_names_dict = collections.OrderedDict()
         for key in loaded_state_dict:
