@@ -69,8 +69,11 @@ class Ui_MainWindow(object):
         return new_layout
 
     def Set_Button_Size(self,button,size):
-        button.setMinimumSize(QtCore.QSize(size[0] * self.button_size, size[1] * self.button_size))
-        button.setMaximumSize(QtCore.QSize(size[0] * self.button_size, size[1] * self.button_size))
+        Qsize_obj = QtCore.QSize(size[0] * self.button_size, size[1] * self.button_size)
+        button.setMinimumSize(Qsize_obj)
+        button.setMaximumSize(Qsize_obj)
+        if isinstance(button,QPushButton) or isinstance(button,QToolButton):
+            button.setIconSize(0.8*Qsize_obj)
 
     def Define_Slider(self,slider_name,tooltip,range,position=None,size=1,horizontal=True,parent=None,dial=False):
         if parent is None:
